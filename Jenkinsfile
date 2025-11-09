@@ -2,80 +2,90 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME = "ACEest_Fitness_API"
-        DOCKER_IMAGE = "surya0224/aceest_fitness_api:v1.0"
-        PORT = "5000"
+        // 🔹 Jenkins credentials ID for Docker Hub (add this in Jenkins UI)
+        DOCKER_CREDENTIALS = credentials('dockerhub-login')
+
+        // 🔹 Your Docker Hub username and image name
+        DOCKER_USER = 'surya0224'
+        IMAGE_NAME = 'aceest_fitness_api'
+
+        // 🔹 Flask app port
+        APP_PORT = '5000'
     }
 
     stages {
-        stage('Checkout') {
+
+        // 1️⃣ Checkout Code from GitHub
+        stage('Checkout Source') {
             steps {
-                echo "Checking out source code..."
-                checkout scm
+                echo '📥 Cloning source code from GitHub...'
+                git branch: 'main', url: 'https://github.com/surya0210/devops-2.git'
             }
         }
 
-        stage('Set up Python Environment') {
-            steps {
-                echo "Setting up Python environment..."
-                sh '''
-                    sudo apt update -y
-                    sudo apt install -y python3 python3-pip python3-venv
-                    python3 -m venv venv
-                    source venv/bin/activate
-                    pip install --upgrade pip
-                    pip install flask pytest reportlab
-                '''
-            }
-        }
-
-        stage('Run Unit Tests') {
-            steps {
-                echo "Running API tests using pytest..."
-                sh '''
-                    source venv/bin/activate
-                    pytest -v test_fitness_api.py --maxfail=1 --disable-warnings
-                '''
-            }
-        }
-
+        // 2️⃣ Build Docker Image
         stage('Build Docker Image') {
             steps {
-                echo "Building Docker image for ${APP_NAME}..."
-                sh '''
-                    docker build -t $DOCKER_IMAGE .
-                '''
+                script {
+                    echo '🐳 Building Docker image...'
+                    sh 'docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .'
+                }
             }
         }
 
-        stage('Push Docker Image') {
+        // 3️⃣ Push Docker Image to Docker Hub
+        stage('Push to Docker Hub') {
             steps {
-                withCredentials([string(credentialsId: 'dockerhub_token', variable: 'DOCKER_TOKEN')]) {
+                script {
+                    echo '📤 Logging in and pushing image to Docker Hub...'
+                    sh 'echo $DOCKER_CREDENTIALS_PSW | docker login -u $DOCKER_CREDENTIALS_USR --password-stdin'
+                    sh 'docker push ${DOCKER_USER}/${IMAGE_NAME}:latest'
+                }
+            }
+        }
+
+        // 4️⃣ Deploy the Docker Container on Server
+        stage('Deploy Container') {
+            steps {
+                script {
+                    echo '🚀 Deploying container on Ubuntu server...'
+
+                    // Stop & remove old container if exists
                     sh '''
-                        echo "$DOCKER_TOKEN" | docker login -u surya0224 --password-stdin
-                        docker push $DOCKER_IMAGE
+                    if [ "$(docker ps -q -f name=aceest_fitness_api)" ]; then
+                        echo "Stopping old container..."
+                        docker stop aceest_fitness_api
+                        docker rm aceest_fitness_api
+                    fi
+                    '''
+
+                    // Run latest version
+                    sh '''
+                    echo "Starting new container..."
+                    docker run -d -p ${APP_PORT}:5000 --name aceest_fitness_api ${DOCKER_USER}/${IMAGE_NAME}:latest
                     '''
                 }
             }
         }
 
-        stage('Deploy Container') {
+        // 5️⃣ Verify Deployment
+        stage('Verify Deployment') {
             steps {
-                echo "Deploying Docker container on port ${PORT}..."
-                sh '''
-                    docker rm -f aceest_api || true
-                    docker run -d -p ${PORT}:5000 --name aceest_api $DOCKER_IMAGE
-                '''
+                script {
+                    echo '🧪 Checking container status...'
+                    sh 'docker ps | grep aceest_fitness_api || echo "Container not running!"'
+                    echo "✅ Application deployed successfully! Visit → http://<your-ec2-public-ip>:5000"
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ Deployment Successful! API running on port ${PORT}"
+            echo '✅ CI/CD Pipeline completed successfully. App is live on port 5000!'
         }
         failure {
-            echo "❌ Build Failed! Check logs above."
+            echo '❌ Pipeline failed! Please review Jenkins console logs for errors.'
         }
     }
 }
