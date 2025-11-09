@@ -2,14 +2,14 @@ pipeline {
     agent any
 
     environment {
-        // 🔹 Jenkins credentials ID for Docker Hub (add this in Jenkins UI)
+        // Jenkins credentials ID for Docker Hub (add this in Jenkins UI)
         DOCKER_CREDENTIALS = credentials('dockerhub-login')
 
-        // 🔹 Your Docker Hub username and image name
+        //Your Docker Hub username and image name
         DOCKER_USER = 'surya0224'
         IMAGE_NAME = 'aceest_fitness_api'
 
-        // 🔹 Flask app port
+        //  Flask app port
         APP_PORT = '5000'
     }
 
@@ -18,37 +18,37 @@ pipeline {
         // 1️⃣ Checkout Code from GitHub
         stage('Checkout Source') {
             steps {
-                echo '📥 Cloning source code from GitHub...'
+                echo ' Cloning source code from GitHub...'
                 git branch: 'main', url: 'https://github.com/surya0210/devops-2.git'
             }
         }
 
-        // 2️⃣ Build Docker Image
+        //  Build Docker Image
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo '🐳 Building Docker image...'
+                    echo ' Building Docker image...'
                     sh 'docker build -t ${DOCKER_USER}/${IMAGE_NAME}:latest .'
                 }
             }
         }
 
-        // 3️⃣ Push Docker Image to Docker Hub
+        // Push Docker Image to Docker Hub
         stage('Push to Docker Hub') {
             steps {
                 script {
-                    echo '📤 Logging in and pushing image to Docker Hub...'
+                    echo ' Logging in and pushing image to Docker Hub...'
                     sh 'echo $DOCKER_CREDENTIALS_PSW | docker login -u $DOCKER_CREDENTIALS_USR --password-stdin'
                     sh 'docker push ${DOCKER_USER}/${IMAGE_NAME}:latest'
                 }
             }
         }
 
-        // 4️⃣ Deploy the Docker Container on Server
+        // � Deploy the Docker Container on Server
         stage('Deploy Container') {
             steps {
                 script {
-                    echo '🚀 Deploying container on Ubuntu server...'
+                    echo ' Deploying container on Ubuntu server...'
 
                     // Stop & remove old container if exists
                     sh '''
@@ -68,13 +68,13 @@ pipeline {
             }
         }
 
-        // 5️⃣ Verify Deployment
+        //  Verify Deployment
         stage('Verify Deployment') {
             steps {
                 script {
-                    echo '🧪 Checking container status...'
+                    echo 'Checking container status...'
                     sh 'docker ps | grep aceest_fitness_api || echo "Container not running!"'
-                    echo "✅ Application deployed successfully! Visit → http://<your-ec2-public-ip>:5000"
+
                 }
             }
         }
@@ -82,10 +82,10 @@ pipeline {
 
     post {
         success {
-            echo '✅ CI/CD Pipeline completed successfully. App is live on port 5000!'
+            echo ' CI/CD Pipeline completed successfully. App is live on port 5000!'
         }
         failure {
-            echo '❌ Pipeline failed! Please review Jenkins console logs for errors.'
+            echo ' Pipeline failed! Please review Jenkins console logs for errors.'
         }
     }
 }
