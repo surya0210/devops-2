@@ -4,8 +4,8 @@ pipeline {
     environment {
         SONAR_HOST_URL = 'http://13.204.35.68:9000'
         SONAR_PROJECT_KEY = 'ACEest_Fitness'
-        SONARQUBE_ENV = 'SonarQube'                     // Jenkins SonarQube name
-        SONAR_TOKEN = credentials('SONAR_TOKEN')    // Jenkins Secret Text
+        SONARQUBE_ENV = 'SonarQube'
+        SONAR_TOKEN = credentials('SONAR_TOKEN')
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-login')
         DOCKER_IMAGE = 'surya0224/aceest_fitness_api'
         K8S_DEPLOYMENT = 'aceest-fitness-deployment'
@@ -18,6 +18,7 @@ pipeline {
 
     stages {
 
+        // 1️⃣ Checkout Source
         stage('Checkout Source') {
             steps {
                 echo "📥 Cloning source code from GitHub..."
@@ -25,6 +26,7 @@ pipeline {
             }
         }
 
+        // 2️⃣ Ensure SonarQube Running
         stage('Ensure SonarQube Running') {
             steps {
                 script {
@@ -57,6 +59,7 @@ pipeline {
             }
         }
 
+        // 3️⃣ SonarQube Code Analysis
         stage('SonarQube Code Analysis') {
             steps {
                 echo "🔍 Running SonarQube Analysis..."
@@ -74,6 +77,7 @@ pipeline {
             }
         }
 
+        // 4️⃣ Quality Gate Check
         stage('Quality Gate') {
             steps {
                 script {
@@ -90,6 +94,7 @@ pipeline {
             }
         }
 
+        // 5️⃣ Build Docker Image
         stage('Build Docker Image') {
             steps {
                 script {
@@ -101,6 +106,7 @@ pipeline {
             }
         }
 
+        // 6️⃣ Run Unit Tests (Pytest)
         stage('Run Unit Tests (pytest)') {
             steps {
                 script {
@@ -112,9 +118,12 @@ pipeline {
             }
         }
 
+        // 7️⃣ Push Docker Image to DockerHub
         stage('Push Docker Image to DockerHub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'dockerhub-login', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                withCredentials([usernamePassword(credentialsId: 'dockerhub-login',
+                                                 usernameVariable: 'DOCKER_USER',
+                                                 passwordVariable: 'DOCKER_PASS')]) {
                     script {
                         echo "🔐 Logging into DockerHub and pushing image..."
                         sh '''
@@ -128,23 +137,69 @@ pipeline {
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        // 8️⃣ Ensure Minikube Running
+        stage('Ensure Minikube Running') {
             steps {
                 script {
-                    echo "🚀 Deploying application to Kubernetes..."
+                    echo "🔍 Checking Minikube status..."
+                    def status = sh(script: "minikube status --format '{{.Host}}' || echo 'Stopped'", returnStdout: true).trim()
+
+                    if (status != 'Running') {
+                        echo "🚀 Starting Minikube..."
+                        sh '''
+                            minikube delete || true
+                            minikube start --driver=docker --memory=2048mb --disk-size=20g
+                            mkdir -p /var/lib/jenkins/.kube /var/lib/jenkins/.minikube
+                            chown -R jenkins:jenkins /var/lib/jenkins/.kube /var/lib/jenkins/.minikube
+                            chmod -R 755 /var/lib/jenkins/.kube /var/lib/jenkins/.minikube
+                        '''
+                    } else {
+                        echo "✅ Minikube is already running."
+                    }
+                }
+            }
+        }
+
+        // 9️⃣ Update Deployment Tag (💥 NEW STAGE)
+        stage('Update K8s Deployment Tag') {
+            steps {
+                script {
+                    echo "📝 Updating image tag in Kubernetes deployment YAML..."
                     sh '''
-                        kubectl apply -f kube/
-                        kubectl rollout status deployment/${K8S_DEPLOYMENT} --timeout=120s
+                        sed -i "s|image: ${DOCKER_IMAGE}:.*|image: ${DOCKER_IMAGE}:${BUILD_NUMBER}|g" kube/deployment.yaml
+                        echo "✅ Updated image line:"
+                        grep "image:" kube/deployment.yaml
                     '''
                 }
             }
         }
 
+        // 🔟 Deploy to Kubernetes
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    echo "🚀 Deploying application to Kubernetes..."
+                    sh '''
+                        kubectl apply -f kube/ --validate=false
+                        echo "⏳ Waiting for rollout to complete (max 5 min)..."
+                        kubectl rollout status deployment/${K8S_DEPLOYMENT} --timeout=300s || {
+                            echo "⚠️ Rollout taking too long, checking pod status..."
+                            kubectl get pods -o wide
+                            kubectl describe pods
+                            exit 1
+                        }
+                    '''
+                }
+            }
+        }
+
+        // 1️⃣1️⃣ Verify Rollout
         stage('Verify Rollout') {
             steps {
                 script {
                     echo "🔎 Verifying Deployment..."
                     sh 'kubectl get pods -o wide'
+                    sh 'kubectl get svc'
                 }
             }
         }
